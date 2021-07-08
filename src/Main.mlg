@@ -56,8 +56,11 @@ module Main = {
   many :: Parser a -> Parser (List a);
   many = { x -> some x <|> return Nil };
 
+  defer :: { a -> b } -> a -> b;
+  defer = { f x -> !f x };
+
   some :: Parser a -> Parser (List a);
-  some = { x -> return Cons <*> x <*> many x };
+  some = { x -> return Cons <*> x <*> defer { many x } };
 
   item :: Parser Char;
   item = { inp ->
