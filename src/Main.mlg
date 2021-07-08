@@ -1,0 +1,105 @@
+module Main = {
+  module {..} = import Builtin;
+  module {..} = import Prelude;
+
+  startWith :: String -> String -> Bool;
+  startWith = { prefix str -> eqString (substring str 0L (lengthString prefix)) prefix };
+
+  data Maybe a = Nothing | Just a;
+
+  data List a = Nil | Cons a (List a);
+
+  type Parser a = String -> Maybe (a, String);
+
+  parse :: Parser a -> String -> Maybe (a, String);
+  parse = { p input -> p input };
+
+  return :: a -> Parser a;
+  return = { x inp -> Just (x, inp) };
+
+  then :: (a -> Parser b) -> Maybe (a, String) -> Maybe (b, String);
+  then = { _ Nothing -> Nothing
+         | f (Just (x, inp)) -> f x inp };
+
+  map :: (a -> b) -> Parser a -> Parser b;
+  map = { g p ->
+    { inp -> parse p inp
+      |> { Nothing -> Nothing
+         | Just (v, out) -> Just (g v, out) }
+    }
+  };
+
+  infixl 4 (<*>);
+  (<*>) = { pg px ->
+    { inp -> parse pg inp
+      |> { Nothing -> Nothing
+         | Just (g, out) -> parse (map g px) out }
+    }
+  };
+
+  infixl 1 (>>=);
+  (>>=) = { p f ->
+    { inp -> parse p inp
+      |> { Nothing -> Nothing
+         | Just (v, out) -> parse (f v) out }
+    }
+  };
+
+  infixl 3 (<|>);
+  (<|>) = { p q ->
+    { inp -> parse p inp
+      |> { Nothing -> parse q inp
+         | Just (v, out) -> Just (v, out) }
+    }
+  };
+
+  many :: Parser a -> Parser (List a);
+  many = { x -> some x <|> return Nil };
+
+  some :: Parser a -> Parser (List a);
+  some = { x -> return Cons <*> x <*> many x };
+
+  item :: Parser Char;
+  item = { inp ->
+    if (eqString inp "")
+      { Nothing }
+      { Just (atString 0L inp, substring inp 1L (lengthString inp)) }
+  };
+
+  fail :: Parser a;
+  fail = { _ -> Nothing };
+
+  sat :: (Char -> Bool) -> Parser Char;
+  sat = { p inp ->
+    item inp |> then { c inp -> if (p c) { Just (c, inp) } { Nothing } }
+  };
+
+  foreign import is_digit :: Char# -> Int32#;
+  isDigit :: Char -> Bool;
+  isDigit = { Char# x -> isTrue# (is_digit x) };
+
+  digit :: Parser Char;
+  digit = { inp -> sat isDigit inp };
+
+  foreign import is_lower :: Char# -> Int32#;
+  isLower :: Char -> Bool;
+  isLower = { Char# x -> isTrue# (is_lower x) };
+
+  lower :: Parser Char;
+  lower = { inp -> sat isLower inp };
+
+  char :: Char -> Parser ();
+  char = { x inp ->
+    inp |> sat (eqChar x)
+        |> then { _ -> return () }
+  };
+
+  main :: { () };
+  main = { 
+    let src = getContents ();
+    -- parse (some (char 'c' <|> char 'd') >>= { _ -> digit >>= { _ -> lower } }) src 
+    parse (some (char 'a')) src 
+      |> { Nothing -> putStrLn "no valid input"
+         | Just (_, rest) -> putStrLn rest }
+  };
+}
