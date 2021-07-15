@@ -2,12 +2,20 @@ module Main = {
   module {..} = import Builtin;
   module {..} = import Prelude;
 
-  startWith :: String -> String -> Bool;
-  startWith = { prefix str -> eqString (substring str 0L (lengthString prefix)) prefix };
-
   data Maybe a = Nothing | Just a;
 
   data List a = Nil | Cons a (List a);
+
+  foreign import string_cons :: Char# -> String# -> String#;
+
+  stringCons :: Char -> String -> String;
+  stringCons = { (Char# c) (String# str) -> String# (string_cons c str) };
+
+  listToString :: List Char -> String;
+  listToString =
+    { Nil -> ""
+    | Cons c cs -> stringCons c (listToString cs)
+    };
 
   type Parser a = String -> Maybe (a, String);
 
@@ -38,6 +46,7 @@ module Main = {
   };
 
   infixl 1 (>>=);
+  (>>=) :: Parser a -> (a -> Parser b) -> Parser b;
   (>>=) = { p f ->
     { inp -> parse p inp
       |> { Nothing -> Nothing
@@ -91,17 +100,55 @@ module Main = {
   lower :: Parser Char;
   lower = { inp -> sat isLower inp };
 
+  foreign import is_alphanum :: Char# -> Int32#;
+  isAlphanum :: Char -> Bool;
+  isAlphanum = { Char# x -> isTrue# (is_alphanum x) };
+
+  alphanum :: Parser Char;
+  alphanum = { inp -> sat isAlphanum inp };
+
   char :: Char -> Parser ();
   char = { x inp ->
     inp |> sat (eqChar x)
         |> then { _ -> return () }
   };
 
+  ident :: Parser String;
+  ident = { inp ->
+    (lower >>= { x ->
+      many alphanum >>= { xs ->
+        return (listToString (Cons x xs))
+      }
+    }) inp
+  };
+
+  foreign import atoi :: String# -> Int32#;
+
+  nat :: Parser Int32;
+  nat = { inp ->
+    (map listToString (some digit)
+      >>= { String# x -> return (Int32# (atoi x))}
+    ) inp
+  };
+
+  space :: Parser ();
+  space = { inp ->
+    (many (sat { Char# ' '# -> True | _ -> False })
+      >>= { _ -> return () }
+    ) inp
+  };
+
+  token :: Parser a -> Parser a;
+  token = { p -> 
+    space
+    >>= { _ -> p }
+    >>= { v -> space >>= { _ -> return v } }
+  };
+
   main :: { () };
   main = { 
     let src = getContents ();
-    -- parse (some (char 'c' <|> char 'd') >>= { _ -> digit >>= { _ -> lower } }) src 
-    parse (some (char 'a')) src 
+    parse (token nat >>= { _ -> token ident }) src 
       |> { Nothing -> putStrLn "no valid input"
          | Just (_, rest) -> putStrLn rest }
   };
