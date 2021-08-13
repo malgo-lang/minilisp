@@ -4,14 +4,12 @@ module Main = {
 
   data Maybe a = Nothing | Just a;
 
-  data List a = Nil | Cons a (List a);
+  foreign import string_cons : Char# -> String# -> String#;
 
-  foreign import string_cons :: Char# -> String# -> String#;
-
-  stringCons :: Char -> String -> String;
+  stringCons : Char -> String -> String;
   stringCons = { (Char# c) (String# str) -> String# (string_cons c str) };
 
-  listToString :: List Char -> String;
+  listToString : List Char -> String;
   listToString =
     { Nil -> ""
     | Cons c cs -> stringCons c (listToString cs)
@@ -19,17 +17,17 @@ module Main = {
 
   type Parser a = String -> Maybe (a, String);
 
-  parse :: Parser a -> String -> Maybe (a, String);
+  parse : Parser a -> String -> Maybe (a, String);
   parse = { p input -> p input };
 
-  return :: a -> Parser a;
+  return : a -> Parser a;
   return = { x inp -> Just (x, inp) };
 
-  then :: (a -> Parser b) -> Maybe (a, String) -> Maybe (b, String);
+  then : (a -> Parser b) -> Maybe (a, String) -> Maybe (b, String);
   then = { _ Nothing -> Nothing
          | f (Just (x, inp)) -> f x inp };
 
-  map :: (a -> b) -> Parser a -> Parser b;
+  map : (a -> b) -> Parser a -> Parser b;
   map = { g p ->
     { inp -> parse p inp
       |> { Nothing -> Nothing
@@ -46,7 +44,7 @@ module Main = {
   };
 
   infixl 1 (>>=);
-  (>>=) :: Parser a -> (a -> Parser b) -> Parser b;
+  (>>=) : Parser a -> (a -> Parser b) -> Parser b;
   (>>=) = { p f ->
     { inp -> parse p inp
       |> { Nothing -> Nothing
@@ -62,90 +60,77 @@ module Main = {
     }
   };
 
-  many :: Parser a -> Parser (List a);
+  many : Parser a -> Parser (List a);
   many = { x -> some x <|> return Nil };
 
-  defer :: { a -> b } -> a -> b;
+  defer : { a -> b } -> a -> b;
   defer = { f x -> !f x };
 
-  some :: Parser a -> Parser (List a);
+  some : Parser a -> Parser (List a);
   some = { x -> return Cons <*> x <*> defer { many x } };
 
-  item :: Parser Char;
+  item : Parser Char;
   item = { inp ->
     if (eqString inp "")
       { Nothing }
       { Just (atString 0L inp, substring inp 1L (lengthString inp)) }
   };
 
-  fail :: Parser a;
+  fail : Parser a;
   fail = { _ -> Nothing };
 
-  sat :: (Char -> Bool) -> Parser Char;
+  sat : (Char -> Bool) -> Parser Char;
   sat = { p inp ->
     item inp |> then { c inp -> if (p c) { Just (c, inp) } { Nothing } }
   };
 
-  foreign import is_digit :: Char# -> Int32#;
-  isDigit :: Char -> Bool;
+  foreign import is_digit : Char# -> Int32#;
+  isDigit : Char -> Bool;
   isDigit = { Char# x -> isTrue# (is_digit x) };
 
-  digit :: Parser Char;
-  digit = { inp -> sat isDigit inp };
+  digit : Parser Char;
+  digit = sat isDigit;
 
-  foreign import is_lower :: Char# -> Int32#;
-  isLower :: Char -> Bool;
+  foreign import is_lower : Char# -> Int32#;
+  isLower : Char -> Bool;
   isLower = { Char# x -> isTrue# (is_lower x) };
 
-  lower :: Parser Char;
-  lower = { inp -> sat isLower inp };
+  lower : Parser Char;
+  lower = sat isLower;
 
-  foreign import is_alphanum :: Char# -> Int32#;
-  isAlphanum :: Char -> Bool;
+  foreign import is_alphanum : Char# -> Int32#;
+  isAlphanum : Char -> Bool;
   isAlphanum = { Char# x -> isTrue# (is_alphanum x) };
 
-  alphanum :: Parser Char;
-  alphanum = { inp -> sat isAlphanum inp };
+  alphanum : Parser Char;
+  alphanum = sat isAlphanum;
 
-  char :: Char -> Parser ();
-  char = { x inp ->
-    inp |> sat (eqChar x)
-        |> then { _ -> return () }
-  };
+  char : Char -> Parser ();
+  char = { x -> map { _ -> () } (sat (eqChar x)) };
 
-  ident :: Parser String;
-  ident = { inp ->
-    (lower >>= { x ->
-      many alphanum >>= { xs ->
-        return (listToString (Cons x xs))
-      }
-    }) inp
-  };
+  ident : Parser String;
+  ident = lower >>=
+    { x -> many alphanum >>=
+    { xs -> return (listToString (Cons x xs)) } };
 
-  foreign import atoi :: String# -> Int32#;
+  foreign import atoi : String# -> Int32#;
 
-  nat :: Parser Int32;
-  nat = { inp ->
-    (map listToString (some digit)
-      >>= { String# x -> return (Int32# (atoi x))}
-    ) inp
-  };
+  nat : Parser Int32;
+  nat = map listToString (some digit) >>=
+    { String# x -> return (Int32# (atoi x)) };
 
-  space :: Parser ();
-  space = { inp ->
-    (many (sat { Char# ' '# -> True | _ -> False })
-      >>= { _ -> return () }
-    ) inp
-  };
+  space : Parser ();
+  space = many (sat { Char# ' '# -> True | _ -> False }) >>=
+    { _ -> return () };
 
-  token :: Parser a -> Parser a;
+  token : Parser a -> Parser a;
   token = { p -> 
     space
-    >>= { _ -> p }
-    >>= { v -> space >>= { _ -> return v } }
+    >>= { _ -> p 
+    >>= { v -> map { _ -> v } space } }
   };
 
-  main :: { () };
+  main : { () };
   main = { 
     let src = getContents ();
     parse (token nat >>= { _ -> token ident }) src 
