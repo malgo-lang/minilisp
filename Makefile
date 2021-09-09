@@ -1,5 +1,5 @@
 CFLAGS=-O3 -flto `pkg-config --cflags --libs bdw-gc`
-LIB_PATH=./base
+LIB_PATH=~/.local/share/malgo/base
 
 minilisp: .malgo-work/build/Main.ll .malgo-work/build/Builtin.ll .malgo-work/build/Prelude.ll .malgo-work/build/runtime.c .malgo-work/build/native.c
 	clang $(CFLAGS) .malgo-work/build/Main.ll .malgo-work/build/Builtin.ll .malgo-work/build/Prelude.ll .malgo-work/build/runtime.c .malgo-work/build/native.c -o minilisp
@@ -27,4 +27,4 @@ minilisp: .malgo-work/build/Main.ll .malgo-work/build/Builtin.ll .malgo-work/bui
 .PHONY: clean
 
 clean:
-	rm minilisp .malgo-work/build/Main.ll .malgo-work/build/Main.mlgi .malgo-work/build/Builtin.ll .malgo-work/build/Builtin.mlgi .malgo-work/build/Prelude.ll .malgo-work/build/Prelude.mlgi
+	rm minilisp .malgo-work/build/Main.ll .malgo-work/build/Main.mlgi .malgo-work/build/Builtin.ll .malgo-work/build/Builtin.mlgi .malgo-work/build/Prelude.ll .malgo-work/build/Prelude.mlgi .malgo-work/build/runtime.c .malgo-work/build/native.c
