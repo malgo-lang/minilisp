@@ -2,6 +2,22 @@ module Main = {
   module {..} = import Builtin;
   module {..} = import Prelude;
 
+  id : a -> a;
+  id = { x -> x };
+
+  cond : List (Bool, {a}) -> a;
+  cond =
+    { Nil -> panic "no branch"
+    | Cons (True, x) _ -> !x
+    | Cons (False, _) xs -> cond xs
+    };
+
+  mapList : (a -> b) -> List a -> List b;
+  mapList =
+    { _ Nil -> Nil
+    | f (Cons x xs) -> Cons (f x) (mapList f xs)
+    };
+
   data Maybe a = Nothing | Just a;
 
   foreign import string_cons : Char# -> String# -> String#;
@@ -15,126 +31,149 @@ module Main = {
     | Cons c cs -> stringCons c (listToString cs)
     };
 
-  type Parser a = String -> Maybe (a, String);
-
-  parse : Parser a -> String -> Maybe (a, String);
-  parse = { p input -> p input };
-
-  return : a -> Parser a;
-  return = { x inp -> Just (x, inp) };
-
-  then : (a -> Parser b) -> Maybe (a, String) -> Maybe (b, String);
-  then = { _ Nothing -> Nothing
-         | f (Just (x, inp)) -> f x inp };
-
-  map : (a -> b) -> Parser a -> Parser b;
-  map = { g p ->
-    { inp -> parse p inp
-      |> { Nothing -> Nothing
-         | Just (v, out) -> Just (g v, out) }
-    }
-  };
-
-  infixl 4 (<*>);
-  (<*>) = { pg px ->
-    { inp -> parse pg inp
-      |> { Nothing -> Nothing
-         | Just (g, out) -> parse (map g px) out }
-    }
-  };
-
-  infixl 1 (>>=);
-  (>>=) : Parser a -> (a -> Parser b) -> Parser b;
-  (>>=) = { p f ->
-    { inp -> parse p inp
-      |> { Nothing -> Nothing
-         | Just (v, out) -> parse (f v) out }
-    }
-  };
-
-  infixl 3 (<|>);
-  (<|>) = { p q ->
-    { inp -> parse p inp
-      |> { Nothing -> parse q inp
-         | Just (v, out) -> Just (v, out) }
-    }
-  };
-
-  many : Parser a -> Parser (List a);
-  many = { x -> some x <|> return Nil };
-
-  defer : { a -> b } -> a -> b;
-  defer = { f x -> !f x };
-
-  some : Parser a -> Parser (List a);
-  some = { x -> return Cons <*> x <*> defer { many x } };
-
-  item : Parser Char;
-  item = { inp ->
-    if (eqString inp "")
+  headString : String -> Maybe Char;
+  headString = { str ->
+    if (eqString str "")
       { Nothing }
-      { Just (atString 0L inp, substring inp 1L (lengthString inp)) }
+      { Just (atString 0L str) }
   };
 
-  fail : Parser a;
-  fail = { _ -> Nothing };
+  tailString : String -> String;
+  tailString = { str ->
+    if (eqString str "")
+      { str }
+      { substring str 1L (lengthString str) }
+  };
 
-  sat : (Char -> Bool) -> Parser Char;
-  sat = { p inp ->
-    item inp |> then { c inp -> if (p c) { Just (c, inp) } { Nothing } }
+  takeWhileString = { pred str ->
+    headString str
+      |> { Nothing -> str
+         | Just c ->
+             if (pred c)
+               { stringCons c (takeWhileString pred (tailString str)) }
+               { "" }
+      }
+  };
+
+  dropWhileString = { pred str ->
+    headString str
+      |> { Nothing -> str
+         | Just c ->
+             if (pred c)
+               { dropWhileString pred (tailString str) }
+               { str }
+      }
   };
 
   foreign import is_digit : Char# -> Int32#;
   isDigit : Char -> Bool;
   isDigit = { Char# x -> isTrue# (is_digit x) };
 
-  digit : Parser Char;
-  digit = sat isDigit;
-
   foreign import is_lower : Char# -> Int32#;
   isLower : Char -> Bool;
   isLower = { Char# x -> isTrue# (is_lower x) };
-
-  lower : Parser Char;
-  lower = sat isLower;
 
   foreign import is_alphanum : Char# -> Int32#;
   isAlphanum : Char -> Bool;
   isAlphanum = { Char# x -> isTrue# (is_alphanum x) };
 
-  alphanum : Parser Char;
-  alphanum = sat isAlphanum;
-
-  char : Char -> Parser ();
-  char = { x -> map { _ -> () } (sat (eqChar x)) };
-
-  ident : Parser String;
-  ident = lower >>=
-    { x -> many alphanum >>=
-    { xs -> return (listToString (Cons x xs)) } };
+  isWhiteSpace : Char -> Bool;
+  isWhiteSpace =
+    { Char# ' '# -> True
+    | Char# '\n'# -> True
+    | Char# '\r'# -> True
+    | Char# '\t'# -> True
+    | _ -> False
+    };
 
   foreign import atoi : String# -> Int32#;
 
-  nat : Parser Int32;
-  nat = map listToString (some digit) >>=
-    { String# x -> return (Int32# (atoi x)) };
+  const : a -> b -> a;
+  const = { a _ -> a }; 
 
-  space : Parser ();
-  space = many (sat { Char# ' '# -> True | _ -> False }) >>=
-    { _ -> return () };
+  type Parser r a = (a -> String -> Maybe (r, String)) -> String -> Maybe (r, String);
 
-  token : Parser a -> Parser a;
-  token = { p -> 
-    space
-    >>= { _ -> p 
-    >>= { v -> map { _ -> v } space } }
+  item : Parser r Char;
+  item = { k inp ->
+    (headString inp, tailString inp)
+    |> { (Nothing, _) -> Nothing
+       | (Just c, cs) -> k c cs
+       }
+  };
+
+  sat : (Char -> Bool) -> Parser r Char;
+  sat = { p k ->
+    with c = item; 
+    if (p c) { k c } { const Nothing }
+  };
+
+  fail : Parser r a;
+  fail = { _ -> const Nothing };
+
+  digit : Parser r Char;
+  digit = sat isDigit;
+
+  lower : Parser r Char;
+  lower = sat isLower;
+
+  alphanum : Parser r Char;
+  alphanum = sat isAlphanum;
+
+  type Cont r a = (a -> r) -> r;
+  mapCont : (a -> b) -> Cont r a -> Cont r b;
+  mapCont = { f p k ->
+    with x = p;
+    k (f x)
+  };
+
+  mapParser : (a -> b) -> Parser r a -> Parser r b;
+  mapParser = { f p k ->
+    with x = p;
+    k (f x)
+  };
+
+  char : Char -> Parser r ();
+  char = { x -> mapParser { _ -> () } (sat (eqChar x)) };
+
+  infixl 3 (<|>);
+  (<|>) : Parser r a -> Parser r a -> Parser r a;
+  (<|>) = { p q k inp ->
+    p { x cs -> k x cs } inp -- pが成功すればkを実行する
+    |> { Nothing -> q k inp -- pが失敗すればq kを実行する
+       | Just (x, cs) -> Just (x, cs) } -- kの実行結果はそのまま返す
+  };
+
+  many : Parser r a -> Parser r (List a);
+  many = { p ->
+    { k -> with x = p;
+           with xs = many p;
+           k (Cons x xs)
+    } <|> { k -> k Nil }
+  };
+
+  ident : Parser r String;
+  ident = { k ->
+    with c = lower;
+    with cs = many alphanum;
+    k (listToString (Cons c cs))
   };
 
   main : { () };
   main = { 
     let src = getContents ();
-    parse (token nat >>= { _ -> token ident }) src 
-      |> { Nothing -> putStrLn "no valid input"
-         | Just (_, rest) -> putStrLn rest }
+    let parser = (
+      with _ = char '4';
+      with _ = char '2';
+      ident
+    );
+    let parser = { k ->
+      with _ = char '4';
+      with _ = char '2';
+      ident k 
+    };
+
+    parser { a cs -> Just (a, cs) } src |> { Nothing -> putStrLn "Nothing" | Just (_, cs) -> putStrLn cs };
+
+    ()
   };
 }
