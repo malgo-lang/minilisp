@@ -2,6 +2,10 @@
 #include <string.h>
 #include <stdint.h>
 
+int32_t char_ord(char c) {
+  return (int32_t) c;
+}
+
 int32_t is_digit(char c) {
   return '0' <= c && c <= '9';
 }

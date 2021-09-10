@@ -5,6 +5,17 @@ module Main = {
   id : a -> a;
   id = { x -> x };
 
+  foldl : (a -> b -> a) -> a -> List b -> a;
+  foldl =
+    { _ z Nil -> z
+    | f z (Cons x xs) -> foldl f (f z x) xs
+    };
+
+  foreign import char_ord : Char# -> Int32#;
+
+  ord : Char -> Int32;
+  ord = { Char# c -> Int32# (char_ord c) };
+
   cond : List (Bool, {a}) -> a;
   cond =
     { Nil -> panic "no branch"
@@ -110,8 +121,11 @@ module Main = {
   fail : Parser r a;
   fail = { _ -> const Nothing };
 
-  digit : Parser r Char;
-  digit = sat isDigit;
+  digit : Parser r Int32;
+  digit = { k ->
+    with d = sat isDigit;
+    k (subInt32 (ord d) (ord '0'))
+  };
 
   lower : Parser r Char;
   lower = sat isLower;
@@ -151,6 +165,14 @@ module Main = {
     } <|> { k -> k Nil }
   };
 
+  some : Parser r a -> Parser r (List a);
+  some = { p ->
+    { k -> with x = p;
+           with xs = many p;
+           k (Cons x xs)
+    }
+  };
+
   ident : Parser r String;
   ident = { k ->
     with c = lower;
@@ -158,21 +180,24 @@ module Main = {
     k (listToString (Cons c cs))
   };
 
+  nat : Parser r Int32;
+  nat = { k ->
+    with ds = some digit;
+    let shiftAdd = { m n -> addInt32 (mulInt32 10 m) n};
+    k (foldl shiftAdd 0 ds)
+  };
+
   main : { () };
   main = { 
     let src = getContents ();
-    let parser = (
-      with _ = char '4';
-      with _ = char '2';
-      ident
-    );
     let parser = { k ->
-      with _ = char '4';
-      with _ = char '2';
-      ident k 
+      with x = nat;
+      k x
     };
 
-    parser { a cs -> Just (a, cs) } src |> { Nothing -> putStrLn "Nothing" | Just (_, cs) -> putStrLn cs };
+    parser { a cs -> Just (a, cs) } src
+      |> { Nothing -> putStrLn "Nothing"
+         | Just (x, cs) -> putStrLn (toStringInt32 x); putStrLn cs };
 
     ()
   };
