@@ -2,20 +2,35 @@ module Main = {
   module {..} = import Builtin;
   module {..} = import Prelude;
 
-  id : a -> a;
-  id = { x -> x };
+  ---------------
+  -- Utilities --
+  ---------------
 
+  -- identity function
+  identity : a -> a;
+  identity = { x -> x };
+
+  -- evaluate to `a` for all inputs
+  const : a -> b -> a;
+  const = { a _ -> a }; 
+
+  -- optional value
+  data Maybe a = Nothing | Just a;
+
+  -- fold left
   foldl : (a -> b -> a) -> a -> List b -> a;
   foldl =
     { _ z Nil -> z
     | f z (Cons x xs) -> foldl f (f z x) xs
     };
 
+  -- ascii code of a given character
   foreign import char_ord : Char# -> Int32#;
 
   ord : Char -> Int32;
   ord = { Char# c -> Int32# (char_ord c) };
 
+  -- multiway if
   cond : List (Bool, {a}) -> a;
   cond =
     { Nil -> panic "no branch"
@@ -23,25 +38,27 @@ module Main = {
     | Cons (False, _) xs -> cond xs
     };
 
+  -- map function over a list
   mapList : (a -> b) -> List a -> List b;
   mapList =
     { _ Nil -> Nil
     | f (Cons x xs) -> Cons (f x) (mapList f xs)
     };
 
-  data Maybe a = Nothing | Just a;
-
+  -- concat a character and a string
   foreign import string_cons : Char# -> String# -> String#;
 
   stringCons : Char -> String -> String;
   stringCons = { (Char# c) (String# str) -> String# (string_cons c str) };
 
+  -- convert a list of character to a string
   listToString : List Char -> String;
   listToString =
     { Nil -> ""
     | Cons c cs -> stringCons c (listToString cs)
     };
 
+  -- get the first character of string
   headString : String -> Maybe Char;
   headString = { str ->
     if (eqString str "")
@@ -49,6 +66,7 @@ module Main = {
       { Just (atString 0L str) }
   };
 
+  -- trim the first character of string
   tailString : String -> String;
   tailString = { str ->
     if (eqString str "")
@@ -56,6 +74,7 @@ module Main = {
       { substring str 1L (lengthString str) }
   };
 
+  -- return the longest prefix of `str` of that satisfy `pred`
   takeWhileString = { pred str ->
     headString str
       |> { Nothing -> str
@@ -66,6 +85,7 @@ module Main = {
       }
   };
 
+  -- return the suffix remains after `takeWhileString pred str`
   dropWhileString = { pred str ->
     headString str
       |> { Nothing -> str
@@ -76,18 +96,22 @@ module Main = {
       }
   };
 
+  -- check that `x` s match [0-9]
   foreign import is_digit : Char# -> Int32#;
   isDigit : Char -> Bool;
   isDigit = { Char# x -> isTrue# (is_digit x) };
 
+  -- check that `x` s match [a-z]
   foreign import is_lower : Char# -> Int32#;
   isLower : Char -> Bool;
   isLower = { Char# x -> isTrue# (is_lower x) };
 
+  -- check that `x` s match [a-zA-Z0-9]
   foreign import is_alphanum : Char# -> Int32#;
   isAlphanum : Char -> Bool;
   isAlphanum = { Char# x -> isTrue# (is_alphanum x) };
 
+  -- check that `x` is a whitespace
   isWhiteSpace : Char -> Bool;
   isWhiteSpace =
     { Char# ' '# -> True
@@ -97,13 +121,14 @@ module Main = {
     | _ -> False
     };
 
-  foreign import atoi : String# -> Int32#;
+  ------------
+  -- Parser --
+  ------------
 
-  const : a -> b -> a;
-  const = { a _ -> a }; 
-
+  -- parser that written in CPS
   type Parser r a = (a -> String -> Maybe (r, String)) -> String -> Maybe (r, String);
 
+  -- single character
   item : Parser r Char;
   item = { k inp ->
     (headString inp, tailString inp)
@@ -112,43 +137,44 @@ module Main = {
        }
   };
 
+  -- a character that satisfy `p`
   sat : (Char -> Bool) -> Parser r Char;
   sat = { p k ->
     with c = item; 
     if (p c) { k c } { const Nothing }
   };
 
+  -- give up parsing
   fail : Parser r a;
   fail = { _ -> const Nothing };
 
+  -- digit
   digit : Parser r Int32;
   digit = { k ->
     with d = sat isDigit;
     k (subInt32 (ord d) (ord '0'))
   };
 
+  -- lower alphabet
   lower : Parser r Char;
   lower = sat isLower;
 
+  -- alphabet or digit
   alphanum : Parser r Char;
   alphanum = sat isAlphanum;
 
-  type Cont r a = (a -> r) -> r;
-  mapCont : (a -> b) -> Cont r a -> Cont r b;
-  mapCont = { f p k ->
-    with x = p;
-    k (f x)
-  };
-
+  -- map function over a parser
   mapParser : (a -> b) -> Parser r a -> Parser r b;
   mapParser = { f p k ->
     with x = p;
     k (f x)
   };
 
+  -- expect the character `x`
   char : Char -> Parser r ();
   char = { x -> mapParser { _ -> () } (sat (eqChar x)) };
 
+  -- choice operator
   infixl 3 (<|>);
   (<|>) : Parser r a -> Parser r a -> Parser r a;
   (<|>) = { p q k inp ->
@@ -157,6 +183,7 @@ module Main = {
        | Just (x, cs) -> Just (x, cs) } -- kの実行結果はそのまま返す
   };
 
+  -- try `p` zero or more times
   many : Parser r a -> Parser r (List a);
   many = { p ->
     { k -> with x = p;
@@ -165,6 +192,7 @@ module Main = {
     } <|> { k -> k Nil }
   };
 
+  -- try `p` one or more times
   some : Parser r a -> Parser r (List a);
   some = { p ->
     { k -> with x = p;
@@ -173,6 +201,7 @@ module Main = {
     }
   };
 
+  -- [a-z][a-zA-Z0-9]
   ident : Parser r String;
   ident = { k ->
     with c = lower;
@@ -180,6 +209,7 @@ module Main = {
     k (listToString (Cons c cs))
   };
 
+  -- [0-9]+
   nat : Parser r Int32;
   nat = { k ->
     with ds = some digit;
@@ -187,11 +217,35 @@ module Main = {
     k (foldl shiftAdd 0 ds)
   };
 
+  -- -?[0-9]+
+  int : Parser r Int32;
+  int = { k ->
+    let op = { k -> with _ = char '-'; k (subInt32 0) } <|> { k -> k identity };
+    with f = op;
+    with n = nat;
+    k (f n)
+  };
+
+  -- skip some spaces
+  space : Parser r ();
+  space = { k ->
+    with _ = many (sat isWhiteSpace);
+    k ()
+  };
+
+  -- skip some spaces and execute `p`
+  token = { p k ->
+    with _ = space;
+    with x = p;
+    with _ = space;
+    k x
+  };
+
   main : { () };
   main = { 
     let src = getContents ();
     let parser = { k ->
-      with x = nat;
+      with x = token int;
       k x
     };
 
