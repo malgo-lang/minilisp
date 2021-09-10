@@ -96,6 +96,23 @@ module Main = {
       }
   };
 
+  infixr 6 (<>);
+  (<>) : String -> String -> String;
+  (<>) = appendString; 
+
+  concat : List String -> String;
+  concat =
+    { Nil -> ""
+    | Cons x xs -> x <> concat xs
+    };
+
+  punctuate : a -> List a -> List a;
+  punctuate =
+    { _ Nil -> Nil
+    | _ (Cons x Nil) -> Cons x Nil
+    | sep (Cons x xs) -> Cons x (Cons sep (punctuate sep xs))
+    };
+
   -- check that `x` s match [0-9]
   foreign import is_digit : Char# -> Int32#;
   isDigit : Char -> Bool;
@@ -105,6 +122,11 @@ module Main = {
   foreign import is_lower : Char# -> Int32#;
   isLower : Char -> Bool;
   isLower = { Char# x -> isTrue# (is_lower x) };
+
+  -- check that `x` s match [A-Z]
+  foreign import is_upper : Char# -> Int32#;
+  isUpper : Char -> Bool;
+  isUpper = { Char# x -> isTrue# (is_upper x) };
 
   -- check that `x` s match [a-zA-Z0-9]
   foreign import is_alphanum : Char# -> Int32#;
@@ -148,16 +170,20 @@ module Main = {
   fail : Parser r a;
   fail = { _ -> const Nothing };
 
-  -- digit
-  digit : Parser r Int32;
-  digit = { k ->
-    with d = sat isDigit;
-    k (subInt32 (ord d) (ord '0'))
-  };
+  -- [0-9]
+  digit : Parser r Char;
+  digit = sat isDigit;
 
-  -- lower alphabet
+  digitToInt : Char -> Int32;
+  digitToInt = { d -> subInt32 (ord d) (ord '0') };
+
+  -- [a-z]
   lower : Parser r Char;
   lower = sat isLower;
+
+  -- [A-Z]
+  upper : Parser r Char;
+  upper = sat isUpper;
 
   -- alphabet or digit
   alphanum : Parser r Char;
@@ -171,8 +197,8 @@ module Main = {
   };
 
   -- expect the character `x`
-  char : Char -> Parser r ();
-  char = { x -> mapParser { _ -> () } (sat (eqChar x)) };
+  char : Char -> Parser r Char;
+  char = { x -> sat (eqChar x) };
 
   -- choice operator
   infixl 3 (<|>);
@@ -212,7 +238,7 @@ module Main = {
   -- [0-9]+
   nat : Parser r Int32;
   nat = { k ->
-    with ds = some digit;
+    with ds = some (mapParser digitToInt digit);
     let shiftAdd = { m n -> addInt32 (mulInt32 10 m) n};
     k (foldl shiftAdd 0 ds)
   };
@@ -241,17 +267,48 @@ module Main = {
     k x
   };
 
+  ------------------
+  -- s-expression --
+  ------------------
+
+  data SExpr = Symbol String
+             | SInt Int32
+             | SList (List SExpr);
+
+  show : SExpr -> String;
+  show =
+    { Symbol str -> "Symbol " <> str
+    | SInt int -> "SInt " <> toStringInt32 int
+    | SList ss -> "SList [" <> concat (punctuate ", " (mapList show ss)) <> "]"
+    };
+
+  symbol : Parser r SExpr;
+  symbol = token { k ->
+    with x = lower <|> upper <|> char '_';
+    with xs = many (lower <|> upper <|> digit <|> char '_');
+    k (Symbol (listToString (Cons x xs)))
+  };
+
+  sint : Parser r SExpr;
+  sint = mapParser SInt (token int);
+
+  slist = { k ->
+    with _ = token (char '(');
+    with xs = many expr;
+    with _ = token (char ')');
+    k (SList xs)
+  };
+
+  expr = symbol <|> sint <|> slist;
+
   main : { () };
   main = { 
     let src = getContents ();
-    let parser = { k ->
-      with x = token int;
-      k x
-    };
+    let parser = expr;
 
     parser { a cs -> Just (a, cs) } src
       |> { Nothing -> putStrLn "Nothing"
-         | Just (x, cs) -> putStrLn (toStringInt32 x); putStrLn cs };
+         | Just (x, cs) -> putStrLn "parsed:"; putStrLn (show x); putStrLn "rest:"; putStrLn cs };
 
     ()
   };

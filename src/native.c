@@ -23,7 +23,7 @@ int32_t is_alphanum(char c) {
 }
 
 char* string_cons(char c, char* str) {
-  char *new = GC_MALLOC(sizeof(char) + 1 + strlen(str) + 1);
+  char *new = GC_MALLOC(sizeof(char) * (1 + strlen(str) + 1));
   new[0] = c;
   new[1] = '\0';
   strcat(new, str);
