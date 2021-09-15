@@ -7,6 +7,7 @@ minilisp: .malgo-work/build/Main.ll .malgo-work/build/Builtin.ll .malgo-work/bui
 .malgo-work/build/Main.ll: src/Main.mlg .malgo-work/build/Builtin.ll .malgo-work/build/Prelude.ll
 	mkdir -p .malgo-work/build
 	malgo to-ll src/Main.mlg -o .malgo-work/build/Main.ll
+	@echo finish malgo to-ll
 
 .malgo-work/build/Builtin.ll: $(LIB_PATH)/Builtin.mlg
 	mkdir -p .malgo-work/build

@@ -1,6 +1,5 @@
 module Main = {
-  module {..} = import Builtin;
-  module {..} = import Prelude;
+  module {..} = import Builtin; module {..} = import Prelude;
 
   ---------------
   -- Utilities --
@@ -13,6 +12,11 @@ module Main = {
   -- evaluate to `a` for all inputs
   const : a -> b -> a;
   const = { a _ -> a }; 
+
+  -- reverse apply function
+  -- use as pattern match expression
+  case : a -> (a -> b) -> b;
+  case = { x f -> f x };
 
   -- optional value
   data Maybe a = Nothing | Just a;
@@ -275,11 +279,11 @@ module Main = {
              | SInt Int32
              | SList (List SExpr);
 
-  show : SExpr -> String;
-  show =
+  showSExpr : SExpr -> String;
+  showSExpr =
     { Symbol str -> "Symbol " <> str
     | SInt int -> "SInt " <> toStringInt32 int
-    | SList ss -> "SList [" <> concat (punctuate ", " (mapList show ss)) <> "]"
+    | SList ss -> "SList [" <> concat (punctuate ", " (mapList showSExpr ss)) <> "]"
     };
 
   symbol : Parser r SExpr;
@@ -301,15 +305,110 @@ module Main = {
 
   expr = symbol <|> sint <|> slist;
 
+  ----------
+  -- Eval --
+  ----------
+
+  data Value = VSymbol String
+             | VInt Int32
+             | VCons Value Value
+             | VFunc (List Value -> Value)
+             | VSpecial (Env -> List SExpr -> Value)
+             | VNil;
+
+  showValue : Value -> String;
+  showValue =
+    { VSymbol x -> x
+    | VInt x -> toStringInt32 x
+    | VCons x y -> "(" <> showValue x <> " . " <> showValue y <> ")"
+    | VFunc _ -> "<closure>"
+    | VSpecial _ -> "<special>"
+    | VNil -> "nil"
+    };
+
+  type Env = List (String, Value);
+
+  lookupList =
+    { Nil _ -> Nothing
+    | (Cons (k, v) env) n -> if (eqString k n) { Just v } { lookupList env n }
+    };
+
+  appendList =
+    { Nil ys -> ys
+    | (Cons x xs) ys -> Cons x (appendList xs ys)
+    };
+
+  zip =
+    { Nil _ -> Nil
+    | _ Nil -> Nil
+    | (Cons x xs) (Cons y ys) -> Cons (x, y) (zip xs ys)
+    };
+    
+  globalEnv = [
+    ("nil", VNil),
+    ("atom",
+     VFunc { [VSymbol _] -> VSymbol "t"
+           | [VInt _] -> VSymbol "t"
+           | [VNil] -> VSymbol "t"
+           | _ -> VNil
+           }), 
+    ("eq",
+     VFunc { [VSymbol x, VSymbol y] -> if (eqString x y) { VSymbol "t" } { VNil }
+           | [VInt x, VInt y] -> if (eqInt32 x y) { VSymbol "t" } { VNil }
+           | [VNil, VNil] -> VSymbol "t"
+           | _ -> VNil
+     }),
+    ("cons",
+     VFunc { [x, y] -> VCons x y
+           | _ -> VNil
+     }),
+    ("let",
+     VSpecial { env [Symbol x, expr1, expr2] -> eval (Cons (x, eval env expr1) env) expr2
+              | _ _ -> panic "invalid form"
+     }),
+    ("lambda",
+     VSpecial {
+         env [SList ps, body] ->
+           let params = mapList { Symbol p -> p | _ -> panic "invalid form" } ps;
+           VFunc { args ->
+             eval (appendList (zip params args) env) body
+           }
+       | _ _ -> panic "invalid form"
+     })
+    
+  ];
+
+  eval : Env -> SExpr -> Value;
+  eval =
+    { env (Symbol s) ->
+        case (lookupList env s) {
+            Nothing -> VSymbol s -- if `s` is not defined, return `s` itself
+          | Just v -> v
+        }
+    | _ (SInt x) -> VInt x
+    | env (SList (Cons x xs)) ->
+        case (eval env x) {
+            VFunc f -> f (mapList (eval env) xs)
+          | VSpecial f -> f env xs
+          | _ -> panic "x is not function or special form"
+        }
+    | _ _ -> panic "not supported"
+    };
+
   main : { () };
   main = { 
     let src = getContents ();
     let parser = expr;
 
-    parser { a cs -> Just (a, cs) } src
-      |> { Nothing -> putStrLn "Nothing"
-         | Just (x, cs) -> putStrLn "parsed:"; putStrLn (show x); putStrLn "rest:"; putStrLn cs };
-
-    ()
+    case (parser { a cs -> Just (a, cs) } src) {
+        Nothing -> putStrLn "Nothing"
+      | Just (x, cs) ->
+          putStrLn "parsed:";
+          putStrLn (showSExpr x);
+          putStrLn "rest:";
+          putStrLn cs;
+          putStrLn "evaluated:";
+          putStrLn (showValue (eval globalEnv x))
+    }
   };
 }
