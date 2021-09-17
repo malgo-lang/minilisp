@@ -1,5 +1,6 @@
 module Main = {
-  module {..} = import Builtin; module {..} = import Prelude;
+  module {..} = import Builtin;
+  module {..} = import Prelude;
 
   ---------------
   -- Utilities --
@@ -38,7 +39,7 @@ module Main = {
   cond : List (Bool, {a}) -> a;
   cond =
     { Nil -> panic "no branch"
-    | Cons (True, x) _ -> !x
+    | Cons (True, x) _ -> x ()
     | Cons (False, _) xs -> cond xs
     };
 
@@ -80,24 +81,24 @@ module Main = {
 
   -- return the longest prefix of `str` of that satisfy `pred`
   takeWhileString = { pred str ->
-    headString str
-      |> { Nothing -> str
-         | Just c ->
-             if (pred c)
-               { stringCons c (takeWhileString pred (tailString str)) }
-               { "" }
-      }
+    case (headString str) {
+    | Nothing -> str
+    | Just c ->
+        if (pred c)
+          { stringCons c (takeWhileString pred (tailString str)) }
+          { "" }
+    }
   };
 
   -- return the suffix remains after `takeWhileString pred str`
   dropWhileString = { pred str ->
-    headString str
-      |> { Nothing -> str
-         | Just c ->
-             if (pred c)
-               { dropWhileString pred (tailString str) }
-               { str }
-      }
+    case (headString str) {
+    | Nothing -> str
+    | Just c ->
+        if (pred c)
+          { dropWhileString pred (tailString str) }
+          { str }
+    }
   };
 
   infixr 6 (<>);
@@ -382,15 +383,15 @@ module Main = {
   eval =
     { env (Symbol s) ->
         case (lookupList env s) {
-            Nothing -> VSymbol s -- if `s` is not defined, return `s` itself
-          | Just v -> v
+        | Nothing -> VSymbol s -- if `s` is not defined, return `s` itself
+        | Just v -> v
         }
     | _ (SInt x) -> VInt x
     | env (SList (Cons x xs)) ->
         case (eval env x) {
-            VFunc f -> f (mapList (eval env) xs)
-          | VSpecial f -> f env xs
-          | _ -> panic "x is not function or special form"
+        | VFunc f -> f (mapList (eval env) xs)
+        | VSpecial f -> f env xs
+        | _ -> panic "x is not function or special form"
         }
     | _ _ -> panic "not supported"
     };
@@ -401,14 +402,14 @@ module Main = {
     let parser = expr;
 
     case (parser { a cs -> Just (a, cs) } src) {
-        Nothing -> putStrLn "Nothing"
-      | Just (x, cs) ->
-          putStrLn "parsed:";
-          putStrLn (showSExpr x);
-          putStrLn "rest:";
-          putStrLn cs;
-          putStrLn "evaluated:";
-          putStrLn (showValue (eval globalEnv x))
+    | Nothing -> putStrLn "Nothing"
+    | Just (x, cs) ->
+        putStrLn "parsed:";
+        putStrLn (showSExpr x);
+        putStrLn "rest:";
+        putStrLn cs;
+        putStrLn "evaluated:";
+        putStrLn (showValue (eval globalEnv x))
     }
   };
 }
